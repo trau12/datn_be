@@ -1,0 +1,68 @@
+package com.gucarsoft.socketbe.controller;
+
+import com.gucarsoft.socketbe.model.Message;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.messaging.handler.annotation.DestinationVariable;
+import org.springframework.messaging.handler.annotation.MessageMapping;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Map;
+
+@RestController
+@Slf4j
+public class MessageController {
+
+    private final SimpMessagingTemplate messagingTemplate;
+
+    // Biến tạm để lưu trạng thái chế độ
+    private boolean isManualMode = true; // Mặc định là Chỉnh Tay
+
+    public MessageController(SimpMessagingTemplate messagingTemplate) {
+        this.messagingTemplate = messagingTemplate;
+    }
+
+    @MessageMapping("/chat/{to}")
+    public void sendMessage(@DestinationVariable String to, @RequestBody Message<?> message) {
+        try {
+            // Log đối tượng nhận được
+            log.info("Received message for /chat/{}: {}", to, message);
+
+            String destination = "/topic/messages/" + to;
+
+            // Kiểm tra loại thông điệp
+            switch (message.getMessageType()) {
+                case "SENSOR":
+                    log.info("Processing SENSOR message: {}", message);
+                    messagingTemplate.convertAndSend(destination, message);
+                    break;
+
+                case "CONTROL":
+                    log.info("Processing CONTROL message: {}", message);
+
+                    // Nếu là lệnh điều khiển, xử lý thêm logic
+                    Map<String, Object> controlData = (Map<String, Object>) message.getMessage();
+                    if (controlData.containsKey("isManualMode")) {
+                        isManualMode = (boolean) controlData.get("isManualMode");
+                        log.info("Updated isManualMode to: {}", isManualMode ? "Manual" : "Auto");
+                    }
+
+                    // Gửi lệnh điều khiển tới các thiết bị qua WebSocket
+                    messagingTemplate.convertAndSend(destination, message);
+                    break;
+
+                default:
+                    log.warn("Unhandled message type: {}", message.getMessageType());
+            }
+
+        } catch (Exception e) {
+            log.error("Error processing message: ", e);
+        }
+    }
+
+    // Getter để kiểm tra trạng thái hiện tại
+    public boolean getIsManualMode() {
+        return isManualMode;
+    }
+}

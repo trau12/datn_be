@@ -1,0 +1,57 @@
+package com.gucarsoft.socketbe.controller;
+
+import com.influxdb.client.InfluxDBClient;
+import com.influxdb.client.QueryApi;
+import com.influxdb.query.FluxRecord;
+import com.influxdb.query.FluxTable;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+@Slf4j
+@RestController
+@RequestMapping("/api/sensors")
+public class SensorHistoryController {
+
+    private final QueryApi queryApi;
+
+    public SensorHistoryController(InfluxDBClient influxDBClient) {
+        this.queryApi = influxDBClient.getQueryApi();
+    }
+
+    @GetMapping("/api/sensors/history")
+    public ResponseEntity<?> getSensorHistory(@RequestParam String field, @RequestParam String duration) {
+        String query = String.format(
+                "from(bucket: \"sensor_data\") |> range(start: -%s) |> filter(fn: (r) => r._measurement == \"sensors\" and r._field == \"%s\") |> aggregateWindow(every: 5m, fn: mean)",
+                duration, field
+        );
+
+        try {
+            List<FluxTable> tables = queryApi.query(query);
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (FluxTable table : tables) {
+                for (FluxRecord record : table.getRecords()) {
+                    result.add(Map.of(
+                            "time", record.getTime(),
+                            "value", record.getValue()
+                    ));
+                }
+            }
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Error querying InfluxDB", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Error querying InfluxDB");
+        }
+    }
+
+}
+
+
